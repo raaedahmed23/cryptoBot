@@ -262,14 +262,14 @@ attn_model = 'dot'
 #``attn_model = 'general'``
 #``attn_model = 'concat'``
 hidden_size = 500
-encoder_n_layers = 2
-decoder_n_layers = 2
+encoder_n_layers = 4
+decoder_n_layers = 4
 dropout = 0.1
-batch_size = 64
+batch_size = 4
 
 # Set checkpoint to load from; set to None if starting from scratch
 loadFilename = None
-loadFilename = "crytoBot_checkpoint.pth"
+loadFilename = "cryptoBot_checkpoint.pth"
 device = "cpu"
 voc = Voc()
 

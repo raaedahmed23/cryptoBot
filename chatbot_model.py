@@ -6,11 +6,12 @@ import unicodedata
 
 MAX_LENGTH = 30
 
+
 def unicodeToAscii(s):
-    return ''.join(
-        c for c in unicodedata.normalize('NFD', s)
-        if unicodedata.category(c) != 'Mn'
+    return "".join(
+        c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn"
     )
+
 
 def normalizeString(s):
     s = unicodeToAscii(s.lower().strip())
@@ -20,8 +21,10 @@ def normalizeString(s):
     s = re.sub(r"\s+", r" ", s).strip()
     return s
 
+
 def indexesFromSentence(voc, sentence):
-    return [voc.word2index[word] for word in sentence.split(' ')] + [EOS_token]
+    return [voc.word2index[word] for word in sentence.split(" ")] + [EOS_token]
+
 
 PAD_token = 0
 SOS_token = 1
@@ -29,18 +32,19 @@ EOS_token = 2
 
 device = "cpu"
 
+
 class Voc:
     def __init__(self):
         self.trimmed = False
         self.word2index = {}
         self.index2word = {PAD_token: "PAD", SOS_token: "SOS", EOS_token: "EOS"}
         self.word2count = {}
-        self.num_words = 3 
-        
+        self.num_words = 3
+
     def addSentence(self, sentence):
         for word in sentence.split(" "):
             self.addWord(word)
-            
+
     def addWord(self, word):
         if word not in self.word2index:
             self.word2index[word] = self.num_words
@@ -49,7 +53,7 @@ class Voc:
             self.num_words += 1
         else:
             self.word2count[word] += 1
-            
+
     def trim(self, min_count):
         if self.trimmed:
             return
@@ -61,15 +65,19 @@ class Voc:
             if v >= min_count:
                 keep_words.append(k)
 
-        print('keep_words {} / {} = {:.4f}'.format(
-            len(keep_words), len(self.word2index), len(keep_words) / len(self.word2index)
-        ))
+        print(
+            "keep_words {} / {} = {:.4f}".format(
+                len(keep_words),
+                len(self.word2index),
+                len(keep_words) / len(self.word2index),
+            )
+        )
 
         # Reinitialize dictionaries
         self.word2index = {}
         self.word2count = {}
         self.index2word = {PAD_token: "PAD", SOS_token: "SOS", EOS_token: "EOS"}
-        self.num_words = 3 # Count default tokens
+        self.num_words = 3  # Count default tokens
 
         for word in keep_words:
             self.addWord(word)
@@ -84,8 +92,13 @@ class EncoderRNN(nn.Module):
 
         # Initialize GRU; the input_size and hidden_size parameters are both set to 'hidden_size'
         #   because our input size is a word embedding with number of features == hidden_size
-        self.gru = nn.GRU(hidden_size, hidden_size, n_layers,
-                          dropout=(0 if n_layers == 1 else dropout), bidirectional=True)
+        self.gru = nn.GRU(
+            hidden_size,
+            hidden_size,
+            n_layers,
+            dropout=(0 if n_layers == 1 else dropout),
+            bidirectional=True,
+        )
 
     def forward(self, input_seq, input_lengths, hidden=None):
         # Convert word indexes to embeddings
@@ -97,22 +110,22 @@ class EncoderRNN(nn.Module):
         # Unpack padding
         outputs, _ = nn.utils.rnn.pad_packed_sequence(outputs)
         # Sum bidirectional GRU outputs
-        outputs = outputs[:, :, :self.hidden_size] + outputs[:, : ,self.hidden_size:]
+        outputs = outputs[:, :, : self.hidden_size] + outputs[:, :, self.hidden_size :]
         # Return output and final hidden state
         return outputs, hidden
-    
+
 
 # Luong attention layer
 class Attn(nn.Module):
     def __init__(self, method, hidden_size):
         super(Attn, self).__init__()
         self.method = method
-        if self.method not in ['dot', 'general', 'concat']:
+        if self.method not in ["dot", "general", "concat"]:
             raise ValueError(self.method, "is not an appropriate attention method.")
         self.hidden_size = hidden_size
-        if self.method == 'general':
+        if self.method == "general":
             self.attn = nn.Linear(self.hidden_size, hidden_size)
-        elif self.method == 'concat':
+        elif self.method == "concat":
             self.attn = nn.Linear(self.hidden_size * 2, hidden_size)
             self.v = nn.Parameter(torch.FloatTensor(hidden_size))
 
@@ -124,16 +137,20 @@ class Attn(nn.Module):
         return torch.sum(hidden * energy, dim=2)
 
     def concat_score(self, hidden, encoder_output):
-        energy = self.attn(torch.cat((hidden.expand(encoder_output.size(0), -1, -1), encoder_output), 2)).tanh()
+        energy = self.attn(
+            torch.cat(
+                (hidden.expand(encoder_output.size(0), -1, -1), encoder_output), 2
+            )
+        ).tanh()
         return torch.sum(self.v * energy, dim=2)
 
     def forward(self, hidden, encoder_outputs):
         # Calculate the attention weights (energies) based on the given method
-        if self.method == 'general':
+        if self.method == "general":
             attn_energies = self.general_score(hidden, encoder_outputs)
-        elif self.method == 'concat':
+        elif self.method == "concat":
             attn_energies = self.concat_score(hidden, encoder_outputs)
-        elif self.method == 'dot':
+        elif self.method == "dot":
             attn_energies = self.dot_score(hidden, encoder_outputs)
 
         # Transpose max_length and batch_size dimensions
@@ -141,10 +158,12 @@ class Attn(nn.Module):
 
         # Return the softmax normalized probability scores (with added dimension)
         return F.softmax(attn_energies, dim=1).unsqueeze(1)
-    
+
 
 class LuongAttnDecoderRNN(nn.Module):
-    def __init__(self, attn_model, embedding, hidden_size, output_size, n_layers=1, dropout=0.1):
+    def __init__(
+        self, attn_model, embedding, hidden_size, output_size, n_layers=1, dropout=0.1
+    ):
         super(LuongAttnDecoderRNN, self).__init__()
 
         # Keep for reference
@@ -157,7 +176,12 @@ class LuongAttnDecoderRNN(nn.Module):
         # Define layers
         self.embedding = embedding
         self.embedding_dropout = nn.Dropout(dropout)
-        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, dropout=(0 if n_layers == 1 else dropout))
+        self.gru = nn.GRU(
+            hidden_size,
+            hidden_size,
+            n_layers,
+            dropout=(0 if n_layers == 1 else dropout),
+        )
         self.concat = nn.Linear(hidden_size * 2, hidden_size)
         self.out = nn.Linear(hidden_size, output_size)
 
@@ -184,7 +208,7 @@ class LuongAttnDecoderRNN(nn.Module):
         output = F.softmax(output, dim=1)
         # Return output and final hidden state
         return output, hidden
-    
+
 
 class GreedySearchDecoder(nn.Module):
     def __init__(self, encoder, decoder):
@@ -196,7 +220,7 @@ class GreedySearchDecoder(nn.Module):
         # Forward input through encoder model
         encoder_outputs, encoder_hidden = self.encoder(input_seq, input_length)
         # Prepare encoder's final hidden layer to be first hidden input to the decoder
-        decoder_hidden = encoder_hidden[:decoder.n_layers]
+        decoder_hidden = encoder_hidden[: decoder.n_layers]
         # Initialize decoder input with SOS_token
         decoder_input = torch.ones(1, 1, device=device, dtype=torch.long) * SOS_token
         # Initialize tensors to append decoded words to
@@ -205,7 +229,9 @@ class GreedySearchDecoder(nn.Module):
         # Iteratively decode one word token at a time
         for _ in range(max_length):
             # Forward pass through decoder
-            decoder_output, decoder_hidden = self.decoder(decoder_input, decoder_hidden, encoder_outputs)
+            decoder_output, decoder_hidden = self.decoder(
+                decoder_input, decoder_hidden, encoder_outputs
+            )
             # Obtain most likely word token and its softmax score
             decoder_scores, decoder_input = torch.max(decoder_output, dim=1)
             # Record token and score
@@ -215,7 +241,7 @@ class GreedySearchDecoder(nn.Module):
             decoder_input = torch.unsqueeze(decoder_input, 0)
         # Return collections of word tokens and scores
         return all_tokens, all_scores
-    
+
 
 def evaluate(encoder, decoder, searcher, voc, sentence, max_length=MAX_LENGTH):
     ### Format input sentence as a batch
@@ -236,31 +262,34 @@ def evaluate(encoder, decoder, searcher, voc, sentence, max_length=MAX_LENGTH):
 
 
 def evaluateInput(encoder, decoder, searcher, voc):
-    input_sentence = ''
-    while(1):
+    input_sentence = ""
+    while 1:
         try:
             # Get input sentence
-            input_sentence = input('> ')
+            input_sentence = input("> ")
             # Check if it is quit case
-            if input_sentence == 'q' or input_sentence == 'quit': break
+            if input_sentence == "q" or input_sentence == "quit":
+                break
             # Normalize sentence
             input_sentence = normalizeString(input_sentence)
             # Evaluate sentence
             output_words = evaluate(encoder, decoder, searcher, voc, input_sentence)
             # Format and print response sentence
-            output_words[:] = [x for x in output_words if not (x == 'EOS' or x == 'PAD')]
-            print('Bot:', ' '.join(output_words))
+            output_words[:] = [
+                x for x in output_words if not (x == "EOS" or x == "PAD")
+            ]
+            print("Bot:", " ".join(output_words))
 
         except KeyError:
             print("Error: Encountered unknown word.")
 
 
-# Load model 
+# Load model
 # Configure models
-model_name = 'cb_model'
-attn_model = 'dot'
-#``attn_model = 'general'``
-#``attn_model = 'concat'``
+model_name = "cb_model"
+attn_model = "dot"
+# ``attn_model = 'general'``
+# ``attn_model = 'concat'``
 hidden_size = 500
 encoder_n_layers = 4
 decoder_n_layers = 4
@@ -274,23 +303,25 @@ device = "cpu"
 voc = Voc()
 
 if loadFilename:
-    checkpoint = torch.load(loadFilename, map_location=torch.device('cpu'))
-    encoder_sd = checkpoint['en']
-    decoder_sd = checkpoint['de']
-    encoder_optimizer_sd = checkpoint['en_opt']
-    decoder_optimizer_sd = checkpoint['de_opt']
-    embedding_sd = checkpoint['embedding']
-    voc.__dict__ = checkpoint['voc_dict']
+    checkpoint = torch.load(loadFilename, map_location=torch.device("cpu"))
+    encoder_sd = checkpoint["en"]
+    decoder_sd = checkpoint["de"]
+    encoder_optimizer_sd = checkpoint["en_opt"]
+    decoder_optimizer_sd = checkpoint["de_opt"]
+    embedding_sd = checkpoint["embedding"]
+    voc.__dict__ = checkpoint["voc_dict"]
 
 
-print('Building encoder and decoder ...')
+print("Building encoder and decoder ...")
 # Initialize word embeddings
 embedding = nn.Embedding(voc.num_words, hidden_size)
 if loadFilename:
     embedding.load_state_dict(embedding_sd)
 # Initialize encoder & decoder models
 encoder = EncoderRNN(hidden_size, embedding, encoder_n_layers, dropout)
-decoder = LuongAttnDecoderRNN(attn_model, embedding, hidden_size, voc.num_words, decoder_n_layers, dropout)
+decoder = LuongAttnDecoderRNN(
+    attn_model, embedding, hidden_size, voc.num_words, decoder_n_layers, dropout
+)
 if loadFilename:
     encoder.load_state_dict(encoder_sd)
     decoder.load_state_dict(decoder_sd)
@@ -303,4 +334,3 @@ encoder.eval()
 decoder.eval()
 
 searcher = GreedySearchDecoder(encoder, decoder)
-
